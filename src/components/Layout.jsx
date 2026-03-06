@@ -1,5 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { Globe } from 'lucide-react'; 
+
 import {
   Home, Briefcase, Calendar, Shield, Users,
   AlertTriangle, MessageSquare, Settings, LogOut,
@@ -15,6 +17,7 @@ const navItems = [
   { to: '/dashboard/sos', icon: AlertTriangle, label: 'SOS', roles: ['Migrant', 'Helper', 'Agency'] },
   { to: '/dashboard/ai-chat', icon: MessageSquare, label: 'AI Assistant', roles: ['Migrant', 'Helper'] },
   { to: '/dashboard/admin', icon: Settings, label: 'Admin', roles: ['Agency'] },
+{ to: '/dashboard/voice-translator', icon: Globe, label: 'Voice Translator', roles: ['Migrant', 'Helper', 'Agency'] },
 ];
 
 export default function Layout() {
