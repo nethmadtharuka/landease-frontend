@@ -18,7 +18,7 @@ import SosPage from './pages/sos/SosPage';
 import AiChatPage from './pages/ai/AiChatPage';
 import AdminPage from './pages/admin/AdminPage';
 import VoiceTranslatorPage from './pages/translator/VoiceTranslatorPage';
-
+import ImmigrationPredictorPage from './pages/immigration/ImmigrationPredictorPage';
 
 function PrivateRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -74,6 +74,7 @@ export default function App() {
         <Route path="sos" element={<SosPage />} />
         <Route path="ai-chat" element={<AiChatPage />} />
         <Route path="voice-translator" element={<VoiceTranslatorPage />} />
+        <Route path='immigration' element={<ImmigrationPredictorPage />} />
 
         <Route path="admin" element={
           <PrivateRoute roles={['Agency']}><AdminPage /></PrivateRoute>

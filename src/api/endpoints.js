@@ -80,3 +80,10 @@ export const adminApi = {
   getPendingKyc:   ()         => api.get('/api/Kyc/pending'),
   reviewKyc:       (id, data) => api.put(`/api/Kyc/${id}/review`, data),
 };
+
+//imigration
+export const immigrationApi = {
+  analyze:     (data) => api.post('/api/immigration/analyze', data),
+  getVisaTypes:()     => api.get('/api/immigration/visa-types'),
+  getCountries:()     => api.get('/api/immigration/countries'),
+};
