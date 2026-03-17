@@ -83,7 +83,24 @@ export const adminApi = {
 
 //imigration
 export const immigrationApi = {
-  analyze:     (data) => api.post('/api/immigration/analyze', data),
+  analyze: (profileData, files = []) => {
+  const formData = new FormData();
+
+  // append all profile fields
+  Object.entries(profileData).forEach(([key, val]) => {
+    formData.append(key, val);
+  });
+
+  // append each document file
+  // backend splits filename on '_' to get docType
+  files.forEach(({ file, docType }) => {
+    formData.append('documents', file, `${docType}_${file.name}`);
+  });
+
+  return api.post('/api/immigration/analyze', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+},
   getVisaTypes:()     => api.get('/api/immigration/visa-types'),
   getCountries:()     => api.get('/api/immigration/countries'),
 };
