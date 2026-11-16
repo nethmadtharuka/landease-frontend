@@ -23,7 +23,9 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Capitalized names are React components used in JSX (core ESLint can't see JSX usage
+      // without eslint-plugin-react); apply the same rule to destructured args like { icon: Icon }.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]', caughtErrorsIgnorePattern: '^_' }],
     },
   },
 ])

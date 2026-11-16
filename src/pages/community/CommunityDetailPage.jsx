@@ -1,167 +1,168 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ChevronRight, MessageSquare } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { communityApi } from '../../api/endpoints';
 import { useAuth } from '../../context/AuthContext';
-import toast from 'react-hot-toast';
-import { ArrowLeft, Users, Send, MessageSquare, UserCheck, LogOut } from 'lucide-react';
+import { apiErrorMessage } from '../../lib/apiError';
+import { coverFor } from '../../lib/media';
+import { shortDate, timeAgo } from '../../lib/format';
+import { Avatar, EmptyState, PageSpinner, Verified } from '../../components/ui';
+import { ConfirmDialog } from '../../components/reviews';
 
 export default function CommunityDetailPage() {
-    const { id } = useParams();
-    const { user } = useAuth();
-    const navigate = useNavigate();
-    const [community, setCommunity] = useState(null);
-    const [posts, setPosts] = useState([]);
-    const [members, setMembers] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [tab, setTab] = useState('posts');
-    const [newPost, setNewPost] = useState('');
-    const [posting, setPosting] = useState(false);
+  const { id } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const base = user ? '/dashboard' : '';
+  const [community, setCommunity] = useState(null);
+  const [posts, setPosts] = useState({ items: [], page: 0, hasNextPage: false });
+  const [members, setMembers] = useState({ items: [], page: 0, hasNextPage: false });
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [tab, setTab] = useState('posts');
+  const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
-    const load = async () => {
-        setLoading(true);
-        try {
-            const [c, p, m] = await Promise.all([
-                communityApi.getById(id),
-                communityApi.getPosts(id),
-                communityApi.getMembers(id),
-            ]);
-            setCommunity(c.data.data);
-            setPosts(p.data.data?.items || p.data.data || []);
-            setMembers(m.data.data?.items || m.data.data || []);
-        } catch {
-            toast.error('Community not found');
-            navigate('/community');
-        } finally { setLoading(false); }
-    };
+  const loadPage = useCallback(async (kind, page) => {
+    const fn = kind === 'posts' ? communityApi.getPosts : communityApi.getMembers;
+    const res = await fn(id, { page, pageSize: kind === 'posts' ? 10 : 20 });
+    const d = res.data.data;
+    const setter = kind === 'posts' ? setPosts : setMembers;
+    setter(prev => ({ items: page === 1 ? d.items : [...prev.items, ...d.items], page, hasNextPage: d.hasNextPage }));
+  }, [id]);
 
-    useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.all([communityApi.getById(id), loadPage('posts', 1), loadPage('members', 1)])
+      .then(([c]) => alive && setCommunity(c.data.data))
+      .catch(err => { if (!alive) return; if (err.response?.status === 404) setNotFound(true); else toast.error(apiErrorMessage(err, 'Could not load this community.')); })
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [id, loadPage]);
 
-    const handlePost = async (e) => {
-        e.preventDefault();
-        if (!newPost.trim()) return;
-        setPosting(true);
-        try {
-            await communityApi.createPost(id, { content: newPost });
-            toast.success('Post published!');
-            setNewPost('');
-            load();
-        } catch (err) { toast.error(err.response?.data?.message || 'Failed to post'); }
-        finally { setPosting(false); }
-    };
+  const join = async () => {
+    if (!user) { navigate(`/login?next=${encodeURIComponent(`/dashboard/community/${id}`)}`); return; }
+    setBusy(true);
+    try {
+      await communityApi.join(id);
+      setCommunity(c => ({ ...c, isMember: true, memberCount: c.memberCount + 1 }));
+      loadPage('members', 1);
+      toast.success('You joined this community.');
+    } catch (err) { toast.error(apiErrorMessage(err, 'Could not join.')); } finally { setBusy(false); }
+  };
 
-    const handleLeave = async () => {
-        try {
-            await communityApi.leave(id);
-            toast.success('Left community');
-            navigate('/community');
-        } catch (err) { toast.error(err.response?.data?.message || 'Failed to leave'); }
-    };
+  const leave = async () => {
+    setBusy(true);
+    try {
+      await communityApi.leave(id);
+      setCommunity(c => ({ ...c, isMember: false, memberCount: Math.max(0, c.memberCount - 1) }));
+      loadPage('members', 1);
+      toast.success('You left this community.');
+    } catch (err) { toast.error(apiErrorMessage(err, 'Could not leave.')); } finally { setBusy(false); setConfirmLeave(false); }
+  };
 
-    if (loading) return (
-        <div className="flex items-center justify-center py-24">
-            <div className="w-8 h-8 border-2 border-gold-500 border-t-transparent rounded-full animate-spin" />
+  const post = async (e) => {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    setPosting(true);
+    try {
+      const res = await communityApi.createPost(id, { content: draft.trim() });
+      setPosts(p => ({ ...p, items: [res.data.data, ...p.items] }));
+      setCommunity(c => ({ ...c, postCount: c.postCount + 1 }));
+      setDraft('');
+      toast.success('Post published.');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not publish your post.'));
+      if (err.response?.status === 403) setCommunity(c => ({ ...c, isMember: false }));
+    } finally { setPosting(false); }
+  };
+
+  if (loading) return <PageSpinner />;
+  const wrap = user ? 'max-w-[812px]' : 'max-w-[812px] mx-auto px-4 pt-6';
+  if (notFound || !community) return <div className={wrap}><EmptyState title="Community not found" action={<Link to={`${base}/community`} className="btn-ink">All communities</Link>} /></div>;
+
+  return (
+    <div className={wrap}>
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[14.5px] text-muted">
+        <Link to={`${base}/community`} className="hover:text-ink">Communities</Link><ChevronRight size={14} />
+        <span className="text-ink font-medium">{community.originCountry} → {community.destinationCountry}</span>
+      </nav>
+
+      <section className="card overflow-hidden mt-4">
+        <img src={coverFor(community.destinationCountry)} alt="" className="w-full h-[170px] object-cover" />
+        <div className="p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1">
+            <h1 className="font-display text-[32px] tracking-[-0.035em]">{community.originCountry} <span className="text-twotone">→</span> {community.destinationCountry}</h1>
+            <p className="text-muted mt-1">{community.description}</p>
+            <p className="text-[14.5px] text-muted mt-2"><b className="text-ink">{community.memberCount}</b> members <span className="ml-3"><b className="text-ink">{community.postCount}</b> posts</span></p>
+          </div>
+          {community.isMember
+            ? <button type="button" onClick={() => setConfirmLeave(true)} disabled={busy} className="btn-ghost bg-white">Leave</button>
+            : <button type="button" onClick={join} disabled={busy} className="btn-ink">{user ? 'Join community' : 'Sign in to join'}</button>}
         </div>
-    );
+      </section>
 
-    return (
-        <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-            <button onClick={() => navigate('/community')} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm">
-                <ArrowLeft size={16} /> Back to Communities
-            </button>
+      <div role="tablist" className="flex gap-6 border-b border-line mt-6">
+        {[['posts', 'Posts'], ['members', 'Members']].map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} className="tab" onClick={() => setTab(k)}>{l}</button>
+        ))}
+      </div>
 
-            {/* Header */}
-            <div className="card">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h1 className="text-2xl font-display font-bold text-white mb-2">{community?.name}</h1>
-                        <p className="text-gray-400">{community?.description}</p>
-                        <div className="flex items-center gap-4 mt-3">
-                            <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                                <Users size={14} className="text-gold-400" /> {members.length} members
-                            </span>
-                            <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                                <MessageSquare size={14} className="text-gold-400" /> {posts.length} posts
-                            </span>
-                        </div>
-                    </div>
-                    {community?.isMember && (
-                        <button onClick={handleLeave} className="btn-secondary text-sm py-2 px-4 text-red-400 hover:text-red-300 flex items-center gap-2">
-                            <LogOut size={14} /> Leave
-                        </button>
-                    )}
-                </div>
+      {tab === 'posts' ? (
+        <div className="space-y-4 mt-5">
+          {community.isMember ? (
+            <form onSubmit={post} className="card p-4">
+              <label htmlFor="composer" className="label">Write a post</label>
+              <textarea id="composer" className="input h-24 resize-y" maxLength={2000} placeholder="Ask a question or share what worked for you"
+                value={draft} onChange={e => setDraft(e.target.value)} />
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-[13px] text-muted">{draft.length} / 2000</span>
+                <button type="submit" disabled={posting || !draft.trim()} className="btn-ink">{posting && <span className="spinner w-4 h-4" />}Post</button>
+              </div>
+            </form>
+          ) : (
+            <div className="note flex flex-wrap items-center justify-between gap-3">
+              <span>Join this community to write posts. Anyone can read.</span>
+              <button type="button" onClick={join} disabled={busy} className="btn-ink btn-sm">{user ? 'Join' : 'Sign in to join'}</button>
             </div>
-
-            {/* Tabs */}
-            <div className="flex gap-1 bg-navy-900 p-1 rounded-lg w-fit border border-navy-700">
-                {['posts', 'members'].map(t => (
-                    <button key={t} onClick={() => setTab(t)}
-                        className={`px-5 py-2 rounded-md text-sm font-medium transition-all duration-200 capitalize
-              ${tab === t ? 'bg-gold-500 text-navy-950' : 'text-gray-400 hover:text-white'}`}>
-                        {t}
-                    </button>
-                ))}
-            </div>
-
-            {tab === 'posts' ? (
-                <div className="space-y-4">
-                    {/* New Post */}
-                    {community?.isMember && (
-                        <form onSubmit={handlePost} className="card">
-                            <textarea className="input resize-none h-24 text-sm mb-3"
-                                placeholder="Share something with the community..."
-                                value={newPost}
-                                onChange={e => setNewPost(e.target.value)} />
-                            <div className="flex justify-end">
-                                <button type="submit" disabled={posting || !newPost.trim()}
-                                    className="btn-primary text-sm py-2 px-5 flex items-center gap-2 disabled:opacity-50">
-                                    {posting ? <div className="w-4 h-4 border-2 border-navy-950 border-t-transparent rounded-full animate-spin" />
-                                        : <><Send size={14} /> Post</>}
-                                </button>
-                            </div>
-                        </form>
-                    )}
-
-                    {posts.length === 0 ? (
-                        <div className="card text-center py-12">
-                            <MessageSquare size={40} className="text-navy-600 mx-auto mb-3" />
-                            <p className="text-gray-400">No posts yet. Be the first to share!</p>
-                        </div>
-                    ) : posts.map(p => (
-                        <div key={p.id} className="card">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-8 h-8 bg-navy-700 rounded-full flex items-center justify-center text-xs text-gold-400 font-bold">
-                                    {p.authorName?.charAt(0)}
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium text-white">{p.authorName}</p>
-                                    <p className="text-xs text-gray-500">{new Date(p.createdAt).toLocaleDateString()}</p>
-                                </div>
-                            </div>
-                            <p className="text-gray-300 text-sm leading-relaxed">{p.content}</p>
-                        </div>
-                    ))}
+          )}
+          {posts.items.length === 0 ? (
+            <EmptyState icon={MessageSquare} title="No posts yet">Be the first to ask a question or share a tip.</EmptyState>
+          ) : posts.items.map(p => (
+            <article key={p.id} className="card p-5">
+              <div className="flex items-center gap-3">
+                <Avatar name={p.authorName} size={36} />
+                <div className="leading-tight">
+                  <p className="font-semibold">{p.authorName} {p.authorIsKycVerified && <Verified className="text-[13px] ml-1" />}</p>
+                  <time dateTime={p.createdAt} className="text-[13.5px] text-muted">{timeAgo(p.createdAt)}</time>
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {members.map(m => (
-                        <div key={m.id} className="card flex items-center gap-3">
-                            <div className="w-10 h-10 bg-navy-700 rounded-full flex items-center justify-center text-gold-400 font-bold flex-shrink-0">
-                                {m.fullName?.charAt(0)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-white truncate">{m.fullName}</p>
-                                <p className="text-xs text-gray-500">{m.role}</p>
-                            </div>
-                            {m.isKycVerified && (
-                                <span className="badge-success text-xs flex-shrink-0">
-                                    <UserCheck size={10} className="mr-1" /> Verified
-                                </span>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
+              </div>
+              <p className="mt-3 text-[16px] leading-relaxed whitespace-pre-line break-words">{p.content}</p>
+            </article>
+          ))}
+          {posts.hasNextPage && <div className="text-center"><button type="button" className="btn-ghost bg-white" onClick={() => loadPage('posts', posts.page + 1)}>Load more posts</button></div>}
         </div>
-    );
+      ) : (
+        <div className="mt-5">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {members.items.map(m => (
+              <div key={m.userId} className="card p-4 flex items-center gap-3">
+                <Avatar name={m.fullName} size={40} />
+                <div className="min-w-0 flex-1 leading-tight">
+                  <p className="font-semibold truncate">{m.fullName} {m.isKycVerified && <Verified className="text-[13px] ml-1" />}</p>
+                  <p className="text-[13.5px] text-muted">{m.originCountry || '—'} · joined {shortDate(m.joinedAt)}{m.averageRating > 0 ? ` · ★ ${m.averageRating}` : ''}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {members.hasNextPage && <div className="text-center mt-4"><button type="button" className="btn-ghost bg-white" onClick={() => loadPage('members', members.page + 1)}>Load more members</button></div>}
+        </div>
+      )}
+      {confirmLeave && <ConfirmDialog title={`Leave ${community.name}?`} body="You won't be able to post until you join again." confirmLabel="Leave community" busy={busy} onConfirm={leave} onCancel={() => setConfirmLeave(false)} />}
+    </div>
+  );
 }

@@ -1,78 +1,57 @@
 # LandEase Frontend
 
-Frontend web application for **LandEase**, a migration support platform with service discovery, bookings, KYC, community features, real-time SOS alerts, and AI-assisted tools.
+React (Vite) UI for **LandEase**, a migration support platform. It talks to the LandEase ASP.NET Core API (separate repository).
 
-## Project overview
+## Roles
 
-This repository contains the **React (Vite) UI** for LandEase. It connects to the LandEase backend API (separate repository) and provides role-based experiences for:
-- **Migrant** users (services, bookings, KYC, SOS, AI tools, community)
-- **Helper** users (service creation/management, incoming bookings, SOS acknowledgements)
-- **Agency** users (admin dashboard for KYC + fraud/moderation)
+- **Migrant**: services, bookings, reviews, KYC, SOS, AI assistant, voice translator, profile-strength check, community
+- **Helper**: everything above plus listing services and handling incoming bookings; responds to SOS alerts
+- **Agency / Admin** (granted by LandEase staff, never self-registered): KYC review queue and fraud flags; Agency accounts also respond to SOS alerts
 
-## Features (UI)
+## What works today (verified against the backend contract)
 
-- **Authentication**: login/register and protected routes
-- **Dashboard**: role-aware navigation
-- **Profile** page
-- **Services**: browse services, view details, helper creates services
-- **Bookings**: migrant bookings and helper incoming bookings
-- **KYC**: submit KYC + view status
-- **Community**: communities, join/leave, posts, create post
-- **SOS**: emergency flow + real-time updates (SignalR via backend)
-- **AI tools**:
-  - AI chat
-  - Voice translator
-  - Immigration predictor UI
-  - Place recognition integration
-- **Admin (Agency)**: fraud flags + moderation tools
+| Area | Notes |
+|---|---|
+| Auth | Register (Migrant/Helper only), login, profile view and edit |
+| Services | Browse/search/filter by category, details, create (KYC-verified Helpers) |
+| Bookings | Requested → Accepted → In progress → Completed, cancel/decline; reviews tied to the completed booking |
+| KYC | Upload ID + selfie (+ address proof); staff see time-limited document links and must give a reason to reject |
+| SOS | Trigger with GPS, responders see active alerts on a map (polling every 10 s) and can acknowledge |
+| AI assistant | Conversation memory per session, resumes the last session, AI disclaimer always visible |
+| Profile strength | General heuristic score + optional AI document checklist (explicit consent required) |
+
+Known gaps are tracked in `docs/LandEase_Complete_Production_Implementation_Roadmap.md` in the workspace root
+(e.g. the SignalR real-time client for SOS is Stage 2; place recognition and recommendations have no UI yet).
 
 ## Tech stack
 
-- **React 19** + **Vite**
-- **Routing**: React Router
-- **Styling**: Tailwind CSS
-- **HTTP**: Axios
-- **UX**: lucide-react, react-hot-toast
+React 19, Vite 7, React Router 7, Tailwind CSS 3, Axios, Leaflet (bundled), react-hot-toast, lucide-react. Tests: Vitest.
 
-## Setup & installation
-
-### Prerequisites
-- Node.js 20+
-- Backend API running locally or deployed
-
-### Install and run
+## Run locally
 
 ```bash
-npm install
-npm run dev
+npm ci
+npm run dev        # http://localhost:5173, proxies /api -> http://localhost:5153
+npm run lint
+npm test
+npm run build
 ```
-
-Local dev uses a Vite proxy:
-- `/api` → `http://localhost:5153` (configured in `vite.config.js`)
 
 ## Configuration
 
-### API base URL
+`VITE_API_BASE_URL` is the API **origin** (e.g. `https://<your-app>.azurewebsites.net`). Leave it empty locally.
+Every request path already begins with `/api/`; a trailing `/api` in the variable is stripped so requests can never
+become `/api/api/...`. The API must list this site's origin in `Cors:AllowedOrigins`.
 
-For production deployments (e.g., Azure Static Web Apps), set:
-- `VITE_API_BASE_URL`
+## Conventions
 
-See `.env.example` for guidance.
+- Enum values are exchanged with the API as **strings** (e.g. `"Transport"`, `"InProgress"`); see `src/lib/enums.js`.
+- Show API errors with `apiErrorMessage(err, fallback)` from `src/lib/apiError.js` — never swallow them.
+- Never build HTML strings from user data; if a library requires it (Leaflet popups), use `escapeHtml`.
 
-If `VITE_API_BASE_URL` is not set, the app defaults to `/api` (works with the Vite dev proxy locally).
+## CI
 
-## Usage
+`.github/workflows/ci.yml`: `npm ci` → lint → unit tests → production dependency audit → build.
 
-1. Start the backend API (or use a deployed URL).
-2. Run this frontend and register/login.
-3. Use the dashboard pages based on your assigned role (Migrant/Helper/Agency).
-
-## Future improvements
-
-- Harden auth token storage (consider httpOnly cookies + CSRF strategy)
-- Add end-to-end tests (Playwright/Cypress) for core flows
-- Add i18n for multilingual UI (pairs well with translator feature)
-
-## Author / credits
-
-- **Author**: Nethma D. Tharuka (`@nethmadtharuka`)
+> Windows note: run Vitest from a path with an upper-case drive letter (`E:\...`). A lower-case drive letter in the
+> shell's working directory can make Vite load Vitest twice ("failed to find the current suite").
