@@ -1,93 +1,49 @@
 /** @type {import('tailwindcss').Config} */
+// Tokens come from design/LandEase design system.png (values copied verbatim).
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
-        navy: {
-          50:  '#f0f4ff',
-          100: '#e0e9ff',
-          200: '#c7d7fe',
-          300: '#a5bbfc',
-          400: '#8193f8',
-          500: '#6366f1',
-          600: '#2D3A8C',
-          700: '#1B2A6B',
-          800: '#111E4F',
-          900: '#0A1230',
-          950: '#060B1F',
-        },
-        gold: {
-          300: '#FCD34D',
-          400: '#FBBF24',
-          500: '#F59E0B',
-          600: '#D97706',
-        }
+        ink: '#0B0B10',          // headlines, text
+        'ink-pill': '#29282D',   // primary (ink) buttons
+        electric: '#2739FF',     // accent, highlight card
+        royal: '#3E57D6',        // hero gradient start
+        cyan: '#59C5E2',         // hero gradient glow
+        'soft-sky': '#5D95D2',   // eyebrow action pill
+        sky50: '#EEF6FE',        // icon tiles, notes
+        canvas: '#EDF2F8',       // page background
+        navy: '#06142E',         // footer, safety bands
+        muted: '#5F6470',        // body text
+        twotone: '#878E9A',      // headline second half
+        sos: '#D92D20',          // SOS and destructive only
+        line: '#E2E8F0',         // borders, dividers
+        'electric-50': '#EBEEFF',
+        'field': '#8C95A4',
       },
       fontFamily: {
-        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
-        body:    ['Outfit', 'system-ui', 'sans-serif'],
-        mono:    ['JetBrains Mono', 'monospace'],
+        display: ['"Inter Tight"', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
       },
-      animation: {
-        'fade-in':        'fadeIn 0.6s ease-out forwards',
-        'slide-up':       'slideUp 0.6s ease-out forwards',
-        'slide-down':     'slideDown 0.5s ease-out forwards',
-        'slide-in-right': 'slideInRight 0.5s ease-out forwards',
-        'slide-in-left':  'slideInLeft 0.5s ease-out forwards',
-        'scale-in':       'scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards',
-        'float':          'float 6s ease-in-out infinite',
-        'float-slow':     'float 9s ease-in-out infinite',
-        'shimmer':        'shimmer 2.5s linear infinite',
-        'gradient-shift': 'gradientShift 8s ease infinite',
-        'blob':           'blob 12s ease-in-out infinite',
+      borderRadius: {
+        sm: '10px', field: '14px', card: '20px', media: '28px',
+      },
+      boxShadow: {
+        xs: '0 1px 2px rgba(28,52,104,.06)',
+        hover: '0 14px 40px rgba(28,52,104,.10)',
+        float: '0 24px 64px rgba(28,52,104,.14)',
+        pill: '0 6px 20px rgba(28,52,104,.10)',
+      },
+      letterSpacing: {
+        display: '-0.035em', numeral: '-0.05em', overline: '0.09em', label: '0.06em',
       },
       keyframes: {
-        fadeIn: {
-          '0%':   { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%':   { opacity: '0', transform: 'translateY(28px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        slideDown: {
-          '0%':   { opacity: '0', transform: 'translateY(-20px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
-        },
-        slideInRight: {
-          '0%':   { opacity: '0', transform: 'translateX(32px)' },
-          '100%': { opacity: '1', transform: 'translateX(0)' },
-        },
-        slideInLeft: {
-          '0%':   { opacity: '0', transform: 'translateX(-32px)' },
-          '100%': { opacity: '1', transform: 'translateX(0)' },
-        },
-        scaleIn: {
-          '0%':   { opacity: '0', transform: 'scale(0.85)' },
-          '100%': { opacity: '1', transform: 'scale(1)' },
-        },
-        float: {
-          '0%, 100%': { transform: 'translateY(0px)' },
-          '50%':      { transform: 'translateY(-18px)' },
-        },
-        shimmer: {
-          '0%':   { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
-        },
-        gradientShift: {
-          '0%, 100%': { backgroundPosition: '0% 50%' },
-          '50%':       { backgroundPosition: '100% 50%' },
-        },
-        blob: {
-          '0%, 100%': { borderRadius: '60% 40% 30% 70% / 60% 30% 70% 40%' },
-          '25%':      { borderRadius: '30% 60% 70% 40% / 50% 60% 30% 60%' },
-          '50%':      { borderRadius: '50% 60% 30% 60% / 30% 40% 70% 50%' },
-          '75%':      { borderRadius: '60% 40% 60% 30% / 70% 30% 60% 40%' },
-        },
+        fadeUp: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'none' } },
+        marquee: { '0%': { transform: 'translateX(0)' }, '100%': { transform: 'translateX(-50%)' } },
+      },
+      animation: {
+        'fade-up': 'fadeUp .7s ease-out both',
+        marquee: 'marquee 40s linear infinite',
       },
     },
   },

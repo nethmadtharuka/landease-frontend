@@ -1,43 +1,52 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { authApi } from '../api/endpoints';
+import { TOKEN_KEY } from '../api/axios';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Only wait for a profile fetch when a token exists.
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
+
+  const refreshUser = useCallback(async () => {
+    const res = await authApi.getProfile();
+    setUser(res.data.data);
+    return res.data.data;
+  }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      authApi.getProfile()
-        .then(res => setUser(res.data.data))
-        .catch(() => localStorage.clear())
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    authApi.getProfile()
+      .then(res => setUser(res.data.data))
+      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (credentials) => {
     const res = await authApi.login(credentials);
-    const { token, ...userData } = res.data.data;
-    localStorage.setItem('token', token);
-    const profile = await authApi.getProfile();
-    setUser(profile.data.data);
-    return profile.data.data;
+    localStorage.setItem(TOKEN_KEY, res.data.data.token);
+    return refreshUser();
+  };
+
+  // Registration already returns a token (AuthResponseDto): use it instead of forcing a second sign-in.
+  const loginWithToken = async (token) => {
+    localStorage.setItem(TOKEN_KEY, token);
+    return refreshUser();
   };
 
   const logout = () => {
-    localStorage.clear();
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('landease.chat.sessionId');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, loginWithToken, logout, loading, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

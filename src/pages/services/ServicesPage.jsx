@@ -1,136 +1,209 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Search, Sparkles, Briefcase } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { servicesApi } from '../../api/endpoints';
+import { getRecommendations } from '../../lib/recommendations';
+import ExplainDrawer from '../../components/ExplainDrawer';
 import { useAuth } from '../../context/AuthContext';
-import { Search, Plus, Star, ArrowRight, Briefcase, Filter } from 'lucide-react';
+import { apiErrorMessage } from '../../lib/apiError';
+import { SERVICE_CATEGORIES } from '../../lib/enums';
+import { money } from '../../lib/format';
+import { ArrowLink, EmptyState, ErrorState, Pagination, ServiceCard, ServiceCardSkeleton, Verified } from '../../components/ui';
 
-const CATEGORIES = ['All', 'Housing', 'Legal', 'Healthcare', 'Language', 'Employment', 'Financial', 'Community', 'Transport', 'Education'];
+const COUNTRIES = ['Australia', 'Canada', 'United Kingdom', 'New Zealand', 'Germany', 'Japan', 'United States', 'Portugal'];
+const PAGE_SIZE = 9;
+
+function InAppFooter({ s }) {
+  return (
+    <div className="border-t border-line px-5 py-3.5 flex items-center justify-between">
+      <span className="text-[14.5px] text-muted">{s.destinationCountry}</span>
+      <span><span className="text-[12px] font-medium mr-1">USD</span><span className="font-display text-[22px] tracking-[-0.04em]">{money(s.price)}</span></span>
+    </div>
+  );
+}
+
+function ProviderLine({ s }) {
+  return (
+    <p className="text-[14.5px] text-muted mt-1.5 flex flex-wrap items-center gap-x-1.5">
+      {s.providerName}{s.providerIsKycVerified && <>· <Verified /></>}{s.providerRating > 0 && <>· ★ {s.providerRating}</>}
+    </p>
+  );
+}
 
 export default function ServicesPage() {
-    const { user } = useAuth();
-    const [services, setServices] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
-    const [category, setCategory] = useState('All');
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
+  const { user } = useAuth();
+  const inApp = Boolean(user);
+  const base = inApp ? '/dashboard' : '';
+  const isMigrant = user?.role === 'Migrant';
+  const [params, setParams] = useSearchParams();
 
-    useEffect(() => {
-        const fetch = async () => {
-            setLoading(true);
-            try {
-                const params = { page, pageSize: 9 };
-                if (search) params.search = search;
-                if (category !== 'All') params.category = category;
-                const res = await servicesApi.getAll(params);
-                setServices(res.data.data?.items || []);
-                setTotalPages(res.data.data?.totalPages || 1);
-            } catch { setServices([]); }
-            finally { setLoading(false); }
-        };
-        fetch();
-    }, [search, category, page]);
+  const searchTerm = params.get('searchTerm') || '';
+  const category = params.get('category') || '';
+  // Migrants see their own destination first unless they chose another filter (design: "Showing services for your destination first").
+  const destinationCountry = params.has('destinationCountry') ? params.get('destinationCountry') : (isMigrant ? user.destinationCountry || '' : '');
+  const maxPrice = params.get('maxPrice') || '';
+  const page = Number(params.get('page')) || 1;
+  const tab = isMigrant && params.get('tab') === 'for-you' ? 'for-you' : 'all';
 
-    return (
-        <div className="space-y-6 animate-fade-in">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="section-title">Services</h1>
-                    <p className="section-subtitle">Find settlement support from verified helpers</p>
-                </div>
-                {(user?.role === 'Helper' || user?.role === 'Agency') && (
-                    <Link to="/services/new" className="btn-primary flex items-center gap-2 text-sm">
-                        <Plus size={16} /> List a Service
-                    </Link>
-                )}
+  const [keyword, setKeyword] = useState(searchTerm);
+  const [data, setData] = useState({ items: [], totalCount: 0, totalPages: 1 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [reload, setReload] = useState(0);
+  const [recs, setRecs] = useState(null);
+  const [recError, setRecError] = useState(null);
+  const [explain, setExplain] = useState(null);
+
+  const update = (patch) => {
+    const next = new URLSearchParams(params);
+    Object.entries(patch).forEach(([k, v]) => (v === '' || v == null ? next.delete(k) : next.set(k, v)));
+    if (!('page' in patch)) next.delete('page');
+    setParams(next, { replace: true });
+  };
+
+  // Debounce the keyword into the URL.
+  useEffect(() => {
+    const t = setTimeout(() => { if (keyword.trim() !== searchTerm) update({ searchTerm: keyword.trim() }); }, 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword]);
+
+  useEffect(() => {
+    if (tab !== 'all') return undefined;
+    let alive = true;
+    setLoading(true); setError(null);
+    const q = { page, pageSize: PAGE_SIZE };
+    if (searchTerm) q.searchTerm = searchTerm;
+    if (category) q.category = category;
+    if (destinationCountry) q.destinationCountry = destinationCountry;
+    if (maxPrice) q.maxPrice = maxPrice;
+    servicesApi.getAll(q)
+      .then(r => alive && setData(r.data.data || { items: [] }))
+      .catch(err => alive && setError(apiErrorMessage(err, 'Could not load services.')))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [searchTerm, category, destinationCountry, maxPrice, page, tab, reload]);
+
+  useEffect(() => {
+    if (tab !== 'for-you' || recError) return;
+    getRecommendations().then(setRecs)
+      .catch(err => { setRecError(apiErrorMessage(err, 'Could not load recommendations.')); toast.error(apiErrorMessage(err)); });
+  }, [tab, recError]);
+
+  const hasFilters = Boolean(searchTerm || category || maxPrice || params.has('destinationCountry'));
+  const countries = useMemo(() => (destinationCountry && !COUNTRIES.includes(destinationCountry) ? [destinationCountry, ...COUNTRIES] : COUNTRIES), [destinationCountry]);
+
+  const cardFor = (s) => inApp
+    ? <ServiceCard key={s.id} service={s} to={`${base}/services/${s.id}`} meta={<ProviderLine s={s} />} footer={<InAppFooter s={s} />} />
+    : <ServiceCard key={s.id} service={s} to={`/services/${s.id}`} />;
+
+  return (
+    <div className={inApp ? '' : 'container-x pt-12'}>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className={inApp ? 'page-title' : 'display text-[44px] md:text-[56px]'}>Explore services</h1>
+          <p className="text-muted text-[17px] mt-2">
+            {inApp && isMigrant && destinationCountry && !params.has('destinationCountry')
+              ? <>Showing services for your destination first · <b className="text-ink font-semibold">{destinationCountry}</b></>
+              : <><b className="text-ink font-semibold">{data.totalCount ?? 0} services</b> · Sorted by provider rating</>}
+          </p>
+        </div>
+        {isMigrant && (
+          <div className="seg shadow-pill border-0" role="group" aria-label="View">
+            <button type="button" aria-pressed={tab === 'all'} onClick={() => update({ tab: '' })}>All services</button>
+            <button type="button" aria-pressed={tab === 'for-you'} onClick={() => update({ tab: 'for-you' })}><Sparkles size={13} className="inline -mt-0.5 mr-1" />For you</button>
+          </div>
+        )}
+      </div>
+
+      {tab === 'all' && (
+        <>
+          <div className="card mt-6 p-3.5 grid gap-3 md:grid-cols-[1.6fr_1fr_1fr_auto] items-end">
+            <div>
+              <label htmlFor="f-keyword" className="label text-[13.5px]">Keyword</label>
+              <div className="relative">
+                {!inApp && <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true" />}
+                <input id="f-keyword" type="search" className={`input ${inApp ? '' : 'pl-11'}`} placeholder="Search title or description"
+                  value={keyword} onChange={e => setKeyword(e.target.value)} />
+              </div>
             </div>
-
-            {/* Search & Filter */}
-            <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                    <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                    <input
-                        className="input pl-11"
-                        placeholder="Search services..."
-                        value={search}
-                        onChange={e => { setSearch(e.target.value); setPage(1); }}
-                    />
-                </div>
+            <div>
+              <label htmlFor="f-country" className="label text-[13.5px]">{inApp ? 'Destination' : 'Destination country'}</label>
+              <select id="f-country" className="input" value={destinationCountry} onChange={e => update({ destinationCountry: e.target.value })}>
+                <option value="">Any country</option>
+                {countries.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
-
-            {/* Category Chips */}
-            <div className="flex gap-2 flex-wrap">
-                {CATEGORIES.map(cat => (
-                    <button
-                        key={cat}
-                        onClick={() => { setCategory(cat); setPage(1); }}
-                        className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200
-              ${category === cat
-                                ? 'bg-gold-500 text-navy-950'
-                                : 'bg-navy-800 text-gray-400 border border-navy-700 hover:border-navy-500 hover:text-white'
-                            }`}
-                    >
-                        {cat}
-                    </button>
-                ))}
+            <div>
+              <label htmlFor="f-price" className="label text-[13.5px]">Max price (USD)</label>
+              <input id="f-price" type="number" min="0" inputMode="decimal" className="input" placeholder="No limit"
+                value={maxPrice} onChange={e => update({ maxPrice: e.target.value })} />
             </div>
+            {!inApp && <button type="button" className="btn-ghost h-12 bg-white" disabled={!hasFilters} onClick={() => { setKeyword(''); setParams({}, { replace: true }); }}>Clear filters</button>}
+          </div>
 
-            {/* Grid */}
-            {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Array(6).fill(0).map((_, i) => (
-                        <div key={i} className="card space-y-3">
-                            <div className="skeleton h-4 w-1/3 rounded" />
-                            <div className="skeleton h-6 w-3/4 rounded" />
-                            <div className="skeleton h-4 w-full rounded" />
-                            <div className="skeleton h-4 w-2/3 rounded" />
-                        </div>
-                    ))}
+          <div className="flex gap-2 mt-5 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Category">
+            {[{ value: '', label: 'All' }, ...SERVICE_CATEGORIES].map(c => (
+              <button key={c.value || 'all'} type="button" aria-pressed={category === c.value} onClick={() => update({ category: c.value })}
+                className={`${category === c.value ? 'chip-active' : 'chip'} h-11 px-4 text-[15px] shrink-0`}>{c.label}</button>
+            ))}
+          </div>
+
+          <div className="mt-6">
+            {error ? <ErrorState message={error} onRetry={() => setReload(n => n + 1)} />
+              : loading ? <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{Array.from({ length: 6 }, (_, i) => <ServiceCardSkeleton key={i} />)}</div>
+              : data.items?.length === 0 ? (
+                <EmptyState icon={Briefcase} title={hasFilters ? 'No services match these filters' : 'No services listed yet'}
+                  action={hasFilters ? <button type="button" className="btn-ghost" onClick={() => { setKeyword(''); setParams({}, { replace: true }); }}>Clear filters</button> : null}>
+                  {hasFilters ? 'Try another category, a different country or a higher price limit.' : 'Providers are verifying their identity. Check back soon.'}
+                </EmptyState>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {data.items.map(cardFor)}
                 </div>
-            ) : services.length === 0 ? (
-                <div className="card text-center py-16">
-                    <Briefcase size={48} className="text-navy-600 mx-auto mb-4" />
-                    <p className="text-gray-400">No services found</p>
-                    <p className="text-gray-600 text-sm mt-1">Try a different search or category</p>
-                </div>
+              )}
+          </div>
+          {!loading && !error && (
+            <div className="mt-10"><Pagination page={page} totalPages={data.totalPages || 1} onPage={p => update({ page: String(p) })} /></div>
+          )}
+        </>
+      )}
+
+      {tab === 'for-you' && (
+        <div className="mt-6">
+          <p className="text-muted mb-5">AI-assisted, based on your destination and migration status.</p>
+          {recError ? <ErrorState message={recError} onRetry={() => setRecError(null)} />
+            : !recs ? <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{Array.from({ length: 3 }, (_, i) => <ServiceCardSkeleton key={i} />)}</div>
+            : recs.length === 0 ? (
+              <EmptyState icon={Sparkles} title="No suggestions yet" action={<Link to="/dashboard/profile" className="btn-ghost">Update profile</Link>}>
+                Add your destination country and migration status to get better suggestions.
+              </EmptyState>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {services.map(service => (
-                        <Link key={service.id} to={`/services/${service.id}`} className="card-hover group flex flex-col">
-                            <div className="flex items-start justify-between mb-3">
-                                <span className="badge-info text-xs">{service.category}</span>
-                                <span className="text-gold-400 font-bold text-lg">${service.price}</span>
-                            </div>
-                            <h3 className="font-display font-bold text-white mb-2 line-clamp-2 flex-1">{service.title}</h3>
-                            <p className="text-sm text-gray-500 line-clamp-2 mb-4">{service.description}</p>
-                            <div className="flex items-center gap-2 mt-auto pt-3 border-t border-navy-700">
-                                <div className="w-7 h-7 bg-navy-700 rounded-full flex items-center justify-center text-xs text-gold-400 font-bold flex-shrink-0">
-                                    {service.providerName?.charAt(0)}
-                                </div>
-                                <span className="text-xs text-gray-400 truncate flex-1">{service.providerName}</span>
-                                {service.providerRating > 0 && (
-                                    <span className="text-xs text-gold-400 flex items-center gap-1">
-                                        <Star size={11} fill="currentColor" /> {service.providerRating}
-                                    </span>
-                                )}
-                                <ArrowRight size={14} className="text-gray-600 group-hover:text-gold-400 transition-colors ml-1" />
-                            </div>
-                        </Link>
-                    ))}
-                </div>
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2">
-                    <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-                        className="btn-secondary text-sm py-2 px-4 disabled:opacity-40">← Prev</button>
-                    <span className="text-gray-400 text-sm">Page {page} of {totalPages}</span>
-                    <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
-                        className="btn-secondary text-sm py-2 px-4 disabled:opacity-40">Next →</button>
-                </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {recs.map(r => {
+                  const s = { id: r.serviceId, title: r.serviceTitle, providerName: r.providerName, providerRating: r.providerRating, category: r.category, price: r.price, destinationCountry: r.destinationCountry };
+                  return (
+                    <ServiceCard key={r.serviceId} service={s} to={`/dashboard/services/${r.serviceId}`}
+                      meta={<p className="text-[14.5px] text-electric mt-2 line-clamp-2">{r.matchReason}</p>} footer={<span />}
+                      after={<div className="px-5 pb-5"><button type="button" className="btn-ghost w-full h-10" onClick={() => setExplain(r)}>Why this?</button></div>} />
+                  );
+                })}
+              </div>
             )}
         </div>
-    );
+      )}
+
+      {!inApp && (
+        <div className="mt-14 rounded-card bg-navy text-white p-7 flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div><p className="font-display text-[26px] tracking-[-0.03em]">Know your city? Offer a service.</p><p className="text-white/80 mt-1">Verify your identity once, then list as many services as you like.</p></div>
+          <ArrowLink to="/register?role=Helper">Become a provider</ArrowLink>
+        </div>
+      )}
+      {inApp && !isMigrant && user?.role === 'Helper' && (
+        <div className="mt-8"><Link to="/dashboard/services/new" className="btn-ink">List a service</Link></div>
+      )}
+      {explain && <ExplainDrawer rec={explain} onClose={() => setExplain(null)} />}
+    </div>
+  );
 }
